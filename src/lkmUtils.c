@@ -270,8 +270,13 @@ getTimestamp(void)
 		EpochDiff = 11644473600LL
 	};
 
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 20, 0))
 	struct timespec tspec;
 	ktime_get_real_ts(&tspec);
+#else
+	struct timespec64 tspec;
+	ktime_get_real_ts64(&tspec);
+#endif
 
 	return (uint64_t)(tspec.tv_sec + EpochDiff) * 10000000 + tspec.tv_nsec / 100;
 }

@@ -36,15 +36,3 @@
 #else
 #	define devnode_mode_t umode_t
 #endif
-
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0))
-
-static inline void ktime_get_real_ts(struct timespec *ts)
-{
-	struct timespec64 ts64;
-	ktime_get_real_ts64(&ts64);
-	ts->tv_sec = (time_t)ts64.tv_sec;
-	ts->tv_nsec = ts64.tv_nsec;
-}
-
-#endif

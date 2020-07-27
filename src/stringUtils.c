@@ -102,6 +102,14 @@ wildcardCompareStringLowerCase(
 	const char* wildcardBookmark = NULL;
 	char c;
 
+	if (!*string) // empty input shortcut
+	{
+		while (*wildcard == '*')
+			wildcard++;
+
+		return !*wildcard;
+	}
+
 	for (;;)
 	{
 		if (*wildcard == '*')
@@ -111,15 +119,6 @@ wildcardCompareStringLowerCase(
 
 			if (!*wildcard)
 				return true;
-
-			if (*wildcard == '\r') // rewind and check the next wildcard
-			{
-				string = string0;
-				stringBookmark = NULL;
-				wildcardBookmark = NULL;
-				wildcard++;
-				continue;
-			}
 
 			if (*wildcard != '?')
 			{
@@ -175,19 +174,7 @@ wildcardCompareStringLowerCase(
 			while (*wildcard == '*')
 				wildcard++;
 
-			if (!*wildcard)
-				return true;
-
-			if (*wildcard == '\r') // rewind and check the next wildcard
-			{
-				string = string0;
-				stringBookmark = NULL;
-				wildcardBookmark = NULL;
-				wildcard++;
-				continue;
-			}
-
-			return false;
+			return !*wildcard;
 		}
 	}
 }
