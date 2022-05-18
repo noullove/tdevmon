@@ -22,5 +22,5 @@ clean:
 	make -C $(LINUX_BUILD_DIR) M=$(PWD) clean
 
 install:
-	install -D -m 755 tdevmon.ko $(LINUX_BUILD_DIR)
+	install -D -m 755 tdevmon.ko /lib/modules/$(shell uname -r)/updates
 	install -D -m 755 bin/tdevmon /usr/local/bin
