@@ -185,6 +185,8 @@ enum dm_NotifyCode
 	dm_NotifyCode_UnlockedIoctl,
 	dm_NotifyCode_CompatIoctl,
 	dm_NotifyCode_DataDropped,
+	dm_NotifyCode_ReadIter,
+	dm_NotifyCode_WriteIter,
 	dm_NotifyCode__Count,
 };
 

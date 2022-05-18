@@ -7,6 +7,7 @@
 #include <linux/kernel.h>
 #include <linux/uaccess.h>
 #include <linux/fs.h>
+#include <linux/uio.h>
 #include <linux/ioctl.h>
 #include <linux/poll.h>
 #include <linux/cdev.h>

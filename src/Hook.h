@@ -102,6 +102,18 @@ Hook_fop_write(
 	loff_t* offset
 	);
 
+ssize_t
+Hook_fop_read_iter(
+	struct kiocb* iocb,
+	struct iov_iter* iter
+	);
+
+ssize_t
+Hook_fop_write_iter(
+	struct kiocb* iocb,
+	struct iov_iter* iter
+	);
+
 long
 Hook_fop_unlocked_ioctl(
 	struct file* filp,

@@ -12,7 +12,7 @@ inline
 void
 write_cr0_original(unsigned long val)
 {
-	asm volatile("mov %0,%%cr0": : "r" (val), "m" (__force_order));
+	asm volatile("mov %0,%%cr0": "+r" (val) : : "memory");
 }
 
 static
@@ -74,31 +74,36 @@ disableWriteProtectionImpl(
 	size_t addr;
 
 	pgd_t* pgd;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+	p4d_t* p4d;
+#endif
 	pud_t* pud;
 	pmd_t* pmd;
-	size_t pmdIdx = 0;
 	pmdval_t pmdVal;
 
-	for (addr = begin; addr < end; addr += SECTION_SIZE, backup++)
+	for (addr = begin; addr < end; addr += (size_t)SECTION_SIZE, backup++)
 	{
 		pgd = pgd_offset(current->active_mm, addr);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+		p4d = p4d_offset(pgd, addr);
+		pud = pud_offset(p4d, addr);
+#else
 		pud = pud_offset(pgd, addr);
+#endif
 		pmd = pmd_offset(pud, addr);
 
-#ifndef CONFIG_ARM_LPAE
-		pmdIdx = (addr & SECTION_SIZE) ? 1 : 0;
-#endif
+		// addr is aligned on SECTION_SIZE => pmd index is always 0
 
 		if (isApply)
 		{
-			pmdVal = pmd_val(pmd[pmdIdx]);
-			pmd[pmdIdx] = __pmd((pmdVal & ~PmdFlag_WpMask) | PmdFlag_WpDisabled);
+			pmdVal = pmd_val(pmd[0]);
+			pmd[0] = __pmd((pmdVal & ~PmdFlag_WpMask) | PmdFlag_WpDisabled);
 			*backup = pmdVal;
 		}
 		else
 		{
 			pmdVal = *backup;
-			pmd[pmdIdx] = __pmd(pmdVal);
+			pmd[0] = __pmd(pmdVal);
 		}
 
 		flush_pmd_entry(pmd);

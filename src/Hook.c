@@ -4,7 +4,7 @@
 #include "Connection.h"
 #include "ScatterGather.h"
 
-//#define _DM_TRACE_FOPS 1
+// #define _DM_TRACE_FOPS 1
 
 //..............................................................................
 
@@ -50,12 +50,26 @@ Hook_create(
 	disablePreemptionAndWriteProtection(fops, fops + 1, wpBackup, sizeof(wpBackup));
 
 	newHook->m_originalFops = *fops;
-	newHook->m_fops->open = Hook_fop_open;
-	newHook->m_fops->release = Hook_fop_release;
-	newHook->m_fops->read = Hook_fop_read;
-	newHook->m_fops->write = Hook_fop_write;
-	newHook->m_fops->unlocked_ioctl = Hook_fop_unlocked_ioctl;
-	newHook->m_fops->compat_ioctl = Hook_fop_compat_ioctl;
+	fops->open = Hook_fop_open;
+	fops->release = Hook_fop_release;
+
+	if (fops->read)
+		fops->read = Hook_fop_read;
+
+	if (fops->write)
+		fops->write = Hook_fop_write;
+
+	if (fops->read_iter)
+		fops->read_iter = Hook_fop_read_iter;
+
+	if (fops->write_iter)
+		fops->write_iter = Hook_fop_write_iter;
+
+	if (fops->unlocked_ioctl)
+		fops->unlocked_ioctl = Hook_fop_unlocked_ioctl;
+
+	if (fops->compat_ioctl)
+		fops->compat_ioctl = Hook_fop_compat_ioctl;
 
 	restoreWriteProtectionAndPreemption(fops, fops + 1, wpBackup, sizeof(wpBackup));
 
@@ -134,10 +148,13 @@ Hook_stop(Hook* self)
 
 	if (self->m_fops->open != Hook_fop_open ||
 		self->m_fops->release != Hook_fop_release ||
-		self->m_fops->read != Hook_fop_read ||
-		self->m_fops->write != Hook_fop_write ||
-		self->m_fops->unlocked_ioctl != Hook_fop_unlocked_ioctl ||
-		self->m_fops->compat_ioctl != Hook_fop_compat_ioctl)
+		self->m_fops->read && self->m_fops->read != Hook_fop_read ||
+		self->m_fops->write && self->m_fops->write != Hook_fop_write ||
+		self->m_fops->read_iter && self->m_fops->read_iter != Hook_fop_read_iter ||
+		self->m_fops->write_iter && self->m_fops->write_iter != Hook_fop_write_iter ||
+		self->m_fops->unlocked_ioctl && self->m_fops->unlocked_ioctl != Hook_fop_unlocked_ioctl ||
+		self->m_fops->compat_ioctl && self->m_fops->compat_ioctl != Hook_fop_compat_ioctl
+		)
 	{
 		printk(KERN_WARNING "tdevmon: somebody has re-hooked %s (fops %p); try again later\n", self->m_originalPath, self->m_fops);
 		restoreWriteProtectionAndPreemption(self->m_fops, self->m_fops + 1, wpBackup, sizeof(wpBackup));
@@ -151,6 +168,8 @@ Hook_stop(Hook* self)
 	self->m_fops->release = self->m_originalFops.release;
 	self->m_fops->read = self->m_originalFops.read;
 	self->m_fops->write = self->m_originalFops.write;
+	self->m_fops->read_iter = self->m_originalFops.read_iter;
+	self->m_fops->write_iter = self->m_originalFops.write_iter;
 	self->m_fops->unlocked_ioctl = self->m_originalFops.unlocked_ioctl;
 	self->m_fops->compat_ioctl = self->m_originalFops.compat_ioctl;
 
@@ -430,6 +449,152 @@ Hook_fop_write(
 		paramBlockArray,
 		2
 		);
+
+	Hook_release(self);
+	return result;
+}
+
+ssize_t
+Hook_fop_read_iter(
+	struct kiocb* iocb,
+	struct iov_iter* iter
+	)
+{
+	ssize_t result;
+	Hook* self;
+	struct file* filp = iocb->ki_filp;
+	size_t size = iter->count;
+	struct iov_iter dupIter;
+	const void* dupIterVec;
+	dm_ReadWriteNotifyParams notifyParams;
+	MemBlock paramBlockArray[2];
+
+	self = Device_findHookAddRef(&g_device, filp->f_op);
+	if (!self)
+	{
+		printk(KERN_ERR "tdevmon: could not find hook: op: read: fops: %p\n", filp->f_op);
+		return -ENOENT;
+	}
+
+	dupIterVec = dup_iter(&dupIter, iter, GFP_KERNEL);
+	result = self->m_originalFops.read_iter(iocb, iter);
+
+#ifdef _DM_TRACE_FOPS
+	printk(KERN_INFO "tdevmon: read_iter (filp: %p, iocb: %p, iter: %p, size: %zu) => %zu\n", filp, iocb, iter, size, result);
+#endif
+
+	notifyParams.m_fileId = (uintptr_t)filp;
+	notifyParams.m_offset = 0;
+	notifyParams.m_bufferSize = size;
+	notifyParams.m_dataSize = result >= 0 ? result : 0;
+
+	paramBlockArray[0].m_p = &notifyParams;
+	paramBlockArray[0].m_size = sizeof(notifyParams);
+	paramBlockArray[0].m_flags = 0;
+
+	if (!dupIterVec)
+	{
+		printk(KERN_WARNING "tdevmon: can't duplicate iov_iter for read_iter\n");
+
+		Hook_p_notify(
+			self,
+			filp,
+			dm_NotifyCode_ReadIter,
+			result,
+			paramBlockArray,
+			1
+		);
+	}
+	else
+	{
+		paramBlockArray[1].m_p = &dupIter;
+		paramBlockArray[1].m_size = notifyParams.m_dataSize;
+		paramBlockArray[1].m_flags = MemBlockFlag_IovIter;
+
+		Hook_p_notify(
+			self,
+			filp,
+			dm_NotifyCode_ReadIter,
+			result,
+			paramBlockArray,
+			2
+			);
+
+		kfree(dupIterVec);
+	}
+
+	Hook_release(self);
+	return result;
+}
+
+ssize_t
+Hook_fop_write_iter(
+	struct kiocb* iocb,
+	struct iov_iter* iter
+	)
+{
+	ssize_t result;
+	Hook* self;
+	struct file* filp = iocb->ki_filp;
+	size_t size = iter->count;
+	struct iov_iter dupIter;
+	const void* dupIterVec;
+	dm_ReadWriteNotifyParams notifyParams;
+	MemBlock paramBlockArray[2];
+
+	self = Device_findHookAddRef(&g_device, filp->f_op);
+	if (!self)
+	{
+		printk(KERN_ERR "tdevmon: could not find hook: op: write: fops: %p\n", filp->f_op);
+		return -ENOENT;
+	}
+
+	dupIterVec = dup_iter(&dupIter, iter, GFP_KERNEL);
+	result = self->m_originalFops.write_iter(iocb, iter);
+
+#ifdef _DM_TRACE_FOPS
+	printk(KERN_INFO "tdevmon: write_iter (filp: %p, iocb: %p, iter: %p, size: %zu) => %zu\n", filp, iocb, iter, size, result);
+#endif
+
+	notifyParams.m_fileId = (uintptr_t)filp;
+	notifyParams.m_offset = 0;
+	notifyParams.m_bufferSize = size;
+	notifyParams.m_dataSize = result >= 0 ? result : 0;
+
+	paramBlockArray[0].m_p = &notifyParams;
+	paramBlockArray[0].m_size = sizeof(notifyParams);
+	paramBlockArray[0].m_flags = 0;
+
+	if (!dupIterVec)
+	{
+		printk(KERN_WARNING "tdevmon: can't duplicate iov_iter for write_iter\n");
+
+		Hook_p_notify(
+			self,
+			filp,
+			dm_NotifyCode_WriteIter,
+			result,
+			paramBlockArray,
+			1
+		);
+	}
+	else
+	{
+		paramBlockArray[1].m_p = &dupIter;
+		paramBlockArray[1].m_size = notifyParams.m_dataSize;
+		paramBlockArray[1].m_flags = MemBlockFlag_IovIter;
+
+		Hook_p_notify(
+			self,
+			filp,
+			dm_NotifyCode_WriteIter,
+			result,
+			paramBlockArray,
+			2
+			);
+
+		kfree(dupIterVec);
+	}
 
 	Hook_release(self);
 	return result;

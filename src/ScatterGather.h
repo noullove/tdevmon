@@ -6,7 +6,8 @@
 
 enum MemBlockFlag
 {
-	MemBlockFlag_UserBuffer = 0x01 // need to use copy_from_user ()
+	MemBlockFlag_UserBuffer = 0x01, // need to use copy_from_user ()
+	MemBlockFlag_IovIter    = 0x02, // need to iterate over iov_iter
 };
 
 struct MemBlock

@@ -22,7 +22,7 @@ getScatterGatherSize(
 
 static
 inline
-ssize_t
+int
 copyMemBlock(
 	void* dst,
 	const void* src,
@@ -30,19 +30,13 @@ copyMemBlock(
 	uint flags
 	)
 {
-	int result;
+	if (flags & MemBlockFlag_UserBuffer)
+		return copy_from_user(dst, src, size) == 0 ? 0 : -EFAULT;
 
-	if (!(flags & MemBlockFlag_UserBuffer))
-	{
-		memcpy(dst, src, size);
-	}
-	else
-	{
-		result = copy_from_user(dst, src, size);
-		if (result != 0)
-			return -EFAULT;
-	}
+	if (flags & MemBlockFlag_IovIter)
+		return copy_from_iter(dst, size, (struct iov_iter*)src) == size ? 0 : -EFAULT;
 
+	memcpy(dst, src, size);
 	return 0;
 }
 
